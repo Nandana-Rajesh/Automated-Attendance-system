@@ -1,21 +1,17 @@
 import streamlit as st
-import cv2
-import numpy as np
-import pandas as pd
 from tensorflow.keras.models import load_model
-from datetime import datetime
+import numpy as np
+import cv2
+import pandas as pd
 import csv
 
-# Load the trained CNN model
+# Load trained CNN model
 model_path = "trained_cnn_model.keras"
 cnn_model = load_model(model_path)
 
-# Path to CSV and attendance log
+# Path to CSV
 csv_path = 'E:/Sem 3/Deep Learning/Project/Dataset 1/people.csv'
-attendance_log_path = 'attendance_log.csv'
 
-
-# Load class names safely
 def load_class_names(csv_path):
     class_names = {}
     with open(csv_path, mode='r') as file:
@@ -25,58 +21,35 @@ def load_class_names(csv_path):
                 index = int(row['images'])
                 class_names[index] = row['name']
             except ValueError:
-                continue  # Handle any invalid rows in CSV
+                continue
     return class_names
 
 
-# Function to recognize faces
-def recognize_face():
-    cap = cv2.VideoCapture(0)  # Open the webcam
-    detected_name = "Face not recognized"
-    ret, frame = cap.read()
-
-    if ret:
-        # Simulate face detection and recognition only on first frame
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-
-        if len(faces) > 0:
-            (x, y, w, h) = faces[0]  # Assuming only one face detected
-            face = frame[y:y + h, x:x + w]
-            face_resized = cv2.resize(face, (128, 128))
-            face_array = face_resized / 255.0
-            face_array = np.expand_dims(face_array, axis=0)
-
-            # Prediction
-            prediction = cnn_model.predict(face_array)
-            predicted_label = np.argmax(prediction, axis=1)[0]
-            detected_name = class_names.get(predicted_label, "Face not recognized")
-        else:
-            st.error("No faces detected")
-
-    cap.release()
-    cv2.destroyAllWindows()
-    return detected_name
-
-
-# Streamlit UI
-st.title("Face Recognition Attendance System")
-st.write("### Mark Your Attendance")
-
 class_names = load_class_names(csv_path)
 
-name_to_mark = st.text_input("Enter Your Full Name")
-if st.button("Mark Attendance"):
-    with st.spinner("Opening Camera to Detect Face..."):
-        result = recognize_face()
-        if name_to_mark.strip() in result:
-            st.success(f"Attendance successfully marked for {name_to_mark}")
-        else:
-            st.error("Face not detected or unrecognized. Please ensure your name is trained in the model.")
 
-if st.button("Monitor Attendance"):
-    st.write("Starting live detection...")
-    result = recognize_face()
-    st.write(result)
- 
+st.title("Face Recognition Attendance")
+image_input = st.camera_input("Open Camera to Monitor Attendance")
+
+if image_input:
+    # Convert Streamlit camera bytes to numpy array
+    image_bytes = np.frombuffer(image_input, np.uint8)
+    frame = cv2.imdecode(image_bytes, cv2.IMREAD_COLOR)
+    if frame is not None:
+        # Resize the image and preprocess
+        face_resized = cv2.resize(frame, (128, 128))
+        face_array = face_resized / 255.0
+        face_array = np.expand_dims(face_array, axis=0)
+
+        # Model Prediction
+        prediction = cnn_model.predict(face_array)
+        predicted_label = np.argmax(prediction, axis=1)[0]
+        predicted_name = class_names.get(predicted_label, "Unknown")
+
+        # Output results to the user
+        st.write(f"Predicted: {predicted_name}")
+    else:
+        st.error("Error loading image data.")
+else:
+    st.warning("Waiting for camera input...")
+
