@@ -1,151 +1,82 @@
-import tkinter as tk
-from tkinter import filedialog, messagebox
+import streamlit as st
 import cv2
-import os
+import numpy as np
 import pandas as pd
 from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing.image import img_to_array  # Import this
 from datetime import datetime
 import csv
-import numpy as np
 
 # Load the trained CNN model
-model_path = "trained_cnn_model.keras"  # Change this path if required
+model_path = "trained_cnn_model.keras"
 cnn_model = load_model(model_path)
 
-# Path to the CSV file
+# Path to CSV and attendance log
 csv_path = 'E:/Sem 3/Deep Learning/Project/Dataset 1/people.csv'
 attendance_log_path = 'attendance_log.csv'
 
-# Function to load class names from CSV
+
+# Load class names safely
 def load_class_names(csv_path):
     class_names = {}
     with open(csv_path, mode='r') as file:
         reader = csv.DictReader(file)
         for row in reader:
-            class_names[int(row['images'])] = row['name']
+            try:
+                index = int(row['images'])
+                class_names[index] = row['name']
+            except ValueError:
+                continue  # Handle any invalid rows in CSV
     return class_names
 
-# Load class names
-class_names = load_class_names(csv_path)
 
-# Initialize OpenCV for face detection (Haar Cascade)
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-
-# Function to recognize face and log attendance
-def recognize_and_log_attendance():
-    cap = cv2.VideoCapture(0)  # Start webcam
-    attendance_log = []  # List to log attendance
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)  # Convert frame to grayscale
-        faces = face_cascade.detectMultiScale(gray, 1.3, 5)  # Detect faces
-
-        for (x, y, w, h) in faces:
-            face = frame[y:y + h, x:x + w]
-            face_resized = cv2.resize(face, (128, 128))  # Resize face to match model input
-            face_array = img_to_array(face_resized) / 255.0  # Normalize image
-            face_array = np.expand_dims(face_array, axis=0)  # Add batch dimension
-
-            # Predict the class label (i.e., identity)
-            prediction = cnn_model.predict(face_array)
-            predicted_label = np.argmax(prediction, axis=1)[0]
-
-            # Generic message "Face Recognized"
-            predicted_name = "Face Recognized"
-
-            # Log attendance
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            attendance_log.append({'Name': predicted_name, 'Timestamp': timestamp, 'Status': 'Present'})
-
-            # Display the "Face Recognized" message on the frame
-            cv2.putText(frame, predicted_name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-        # Show the frame with face detection and recognition
-        cv2.imshow('Face Recognition Attendance System', frame)
-
-        # Press 'q' to exit the loop
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    # Save the attendance log to a CSV file
-    attendance_df = pd.DataFrame(attendance_log)
-    attendance_df.to_csv(attendance_log_path, index=False)
-    print("Attendance logged to 'attendance_log.csv'.")
-
-    # Release webcam and close OpenCV window
-    cap.release()
-    cv2.destroyAllWindows()
-
-# Function to add new individuals
-def add_new_person():
-    name = entry_name.get()
-    if not name:
-        messagebox.showerror("Error", "Please enter a name.")
-        return
-
-    # Open the webcam to capture the person's image
-    cap = cv2.VideoCapture(0)
+# Function to recognize faces
+def recognize_face():
+    cap = cv2.VideoCapture(0)  # Open the webcam
+    detected_name = "Face not recognized"
     ret, frame = cap.read()
 
     if ret:
-        # Save the captured image
-        image_path = f"E:/Sem 3/Deep Learning/Project/Dataset 1/preprocesses_image/{name}.jpg"
-        cv2.imwrite(image_path, frame)
+        # Simulate face detection and recognition only on first frame
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
 
-        # Update CSV with new name
-        with open(csv_path, mode='a', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow([len(class_names) + 1, name])  # Assuming image number is based on class count
+        if len(faces) > 0:
+            (x, y, w, h) = faces[0]  # Assuming only one face detected
+            face = frame[y:y + h, x:x + w]
+            face_resized = cv2.resize(face, (128, 128))
+            face_array = face_resized / 255.0
+            face_array = np.expand_dims(face_array, axis=0)
 
-        messagebox.showinfo("Success", f"Image for {name} saved successfully.")
-    else:
-        messagebox.showerror("Error", "Failed to capture image.")
+            # Prediction
+            prediction = cnn_model.predict(face_array)
+            predicted_label = np.argmax(prediction, axis=1)[0]
+            detected_name = class_names.get(predicted_label, "Face not recognized")
+        else:
+            st.error("No faces detected")
 
     cap.release()
+    cv2.destroyAllWindows()
+    return detected_name
 
-# Function to view attendance reports
-def view_attendance():
-    if os.path.exists(attendance_log_path):
-        attendance_df = pd.read_csv(attendance_log_path)
-        top = tk.Toplevel()
-        top.title("Attendance Log")
 
-        text_area = tk.Text(top)
-        text_area.pack(expand=True, fill='both')
-        text_area.insert(tk.END, attendance_df.to_string())
-    else:
-        messagebox.showerror("Error", "No attendance log found.")
+# Streamlit UI
+st.title("Face Recognition Attendance System")
+st.write("### Mark Your Attendance")
 
-# Tkinter GUI Setup
-root = tk.Tk()
-root.title("Face Recognition Attendance System")
+class_names = load_class_names(csv_path)
 
-# Add New Person Frame
-frame_add_person = tk.Frame(root)
-frame_add_person.pack(pady=10)
+name_to_mark = st.text_input("Enter Your Full Name")
+if st.button("Mark Attendance"):
+    with st.spinner("Opening Camera to Detect Face..."):
+        result = recognize_face()
+        if name_to_mark.strip() in result:
+            st.success(f"Attendance successfully marked for {name_to_mark}")
+        else:
+            st.error("Face not detected or unrecognized. Please ensure your name is trained in the model.")
 
-label_name = tk.Label(frame_add_person, text="Enter Name: ")
-label_name.grid(row=0, column=0)
-
-entry_name = tk.Entry(frame_add_person)
-entry_name.grid(row=0, column=1)
-
-button_add_person = tk.Button(frame_add_person, text="Add New Person", command=add_new_person)
-button_add_person.grid(row=1, columnspan=2)
-
-# View Attendance Button
-button_view_attendance = tk.Button(root, text="View Attendance", command=view_attendance)
-button_view_attendance.pack(pady=10)
-
-# Monitor Attendance Button
-button_monitor_attendance = tk.Button(root, text="Monitor Attendance", command=recognize_and_log_attendance)
-button_monitor_attendance.pack(pady=10)
-
-# Start the GUI loop
-root.mainloop()
+if st.button("Monitor Attendance"):
+    st.write("Starting live detection...")
+    result = recognize_face()
+    st.write(result)
+ 
